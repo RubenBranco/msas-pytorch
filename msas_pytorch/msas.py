@@ -6,8 +6,9 @@ from scipy.stats import ks_2samp
 from scipy.spatial.distance import euclidean
 
 
-def categorical_vector_to_count_vector(t: Tensor, num_categories: int) -> Tensor:
-    return torch.bincount(t, minlength=num_categories)
+def categorical_vector_to_freq_vector(t: Tensor, num_categories: int) -> Tensor:
+    tc = torch.bincount(t, minlength=num_categories)
+    return tc / tc.sum()
 
 
 def discrete_goodness_of_fit_test(
@@ -17,9 +18,9 @@ def discrete_goodness_of_fit_test(
     make_counts: bool = True,
 ) -> float:
     if make_counts:
-        real = categorical_vector_to_count_vector(real, num_categories)
-        synthetic = categorical_vector_to_count_vector(synthetic, num_categories)
-    return 1 / (1 + euclidean(real, synthetic))
+        real = categorical_vector_to_freq_vector(real, num_categories)
+        synthetic = categorical_vector_to_freq_vector(synthetic, num_categories)
+    return 1 - euclidean(real, synthetic)
 
 
 def set_diff_1d(t1, t2, assume_unique=False):
@@ -169,8 +170,8 @@ def msas(
                 list(
                     map(
                         lambda timestep: discrete_goodness_of_fit_test(
-                            counts_real[timestep],
-                            counts_synthetic[timestep],
+                            counts_real[timestep] / counts_real[timestep].sum(),
+                            counts_synthetic[timestep] / counts_synthetic[timestep].sum(),
                             make_counts=False,
                         ),
                         range(counts_real.size(0)),
