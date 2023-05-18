@@ -7,6 +7,17 @@ from scipy.spatial.distance import euclidean
 
 
 def categorical_vector_to_freq_vector(t: Tensor, num_categories: int) -> Tensor:
+    """
+    Converts a categorical vector to a frequency vector.
+
+    Args:
+        `t` (Tensor): A 1D tensor representing the categorical vector.
+
+        `num_categories` (int): The number of possible categories the variable can take.
+
+    Returns:
+        Tensor: A 1D tensor representing the frequency vector.
+    """
     tc = torch.bincount(t, minlength=num_categories)
     return tc / tc.sum()
 
@@ -17,6 +28,28 @@ def discrete_goodness_of_fit_test(
     num_categories: Optional[int] = None,
     make_counts: bool = True,
 ) -> float:
+    """
+    Computes the goodness-of-fit between two discrete distributions using the Euclidean
+    distance.
+
+    Args:
+        `real` (Tensor): A 1D tensor representing the real distribution or frequency
+            vectors.
+        `synthetic` (Tensor): A 1D tensor representing the synthetic distribution or
+            frequency vectors.
+        `num_categories` (Optional[int], optional): The number of categories in the
+            distribution. If None, `real` and `synthetic` are assumed to be frequency
+            vectors. Defaults to None.
+        `make_counts` (bool, optional): Whether to convert the input vectors to
+            frequency vectors. If True, the input vectors are assumed to be categorical
+            vectors and are converted to frequency vectors. If False,
+            the input vectors are assumed to be frequency vectors. Defaults to True.
+
+    Returns:
+        float: The goodness-of-fit between the two distributions,
+            computed as 1 minus the Euclidean distance between the two frequency
+            vectors.
+    """
     if make_counts:
         real = categorical_vector_to_freq_vector(real, num_categories)
         synthetic = categorical_vector_to_freq_vector(synthetic, num_categories)
@@ -51,6 +84,69 @@ def msas(
     padding_value: float = 0.0,
     reduction: Union[Literal["mean", "sum"], None] = "mean",
 ) -> Union[Tensor, Tuple[Tensor, ...]]:
+    """
+    Computes the MSAS (Multi-Sequence Aggregate Similarity) between two
+    sets of temporal data, and optionally two sets of static data.
+
+    Args:
+        `real_temporal_data` (Tensor): A tensor of shape (N, L, C) representing the real
+            temporal data, where N is the number of data points, L is the length of the
+            temporal sequence, and C is the number of features (continuous or discrete).
+        `synthetic_temporal_data` (Tensor): A tensor of shape (N, L, C) representing the
+            synthetic temporal data, where N is the number of data points, L is the
+            length of the temporal sequence, and C is the number of features (continuous
+            or discrete).
+        `statistics_functions` (List[Callable[[Tensor], float]]): A list of functions
+            that compute statistics on a 1D tensor (e.g., mean, variance, skewness,
+            kurtosis, etc.). These functions will be used to compute the goodness-of-fit
+            values between the real and synthetic temporal data.
+        `discrete_temporal_features_indices` (Optional[LongTensor]): A tensor of shape
+            (D,) representing the indices of the discrete features in the temporal data,
+            where D is the number of discrete features. If None, all features are
+            assumed to be continuous.
+        `discrete_temporal_features_num_categories` (Optional[LongTensor]): A tensor of
+            shape (D,) representing the number of categories for each discrete feature
+            in the temporal data. If None, all features are assumed to be continuous.
+        `real_static_data` (Optional[Tensor]): A tensor of shape (N, S) representing
+            the real static data, where N is the number of data points, and S is the
+            number of static features (continuous or discrete). If None, no static data
+            will be used.
+        `synthetic_static_data` (Optional[Tensor]): A tensor of shape (N, S)
+            representing the synthetic static data, where N is the number of data
+            points, and S is the number of static features (continuous or discrete).
+            If None, no static data will be used.
+        `discrete_static_features_indices` (Optional[LongTensor]): A tensor of shape
+            (D',) representing the indices of the discrete features in the static data,
+            where D' is the number of discrete features. If None, all features are
+            assumed to be continuous.
+        `discrete_static_features_num_categories` (Optional[LongTensor]): A tensor of
+            shape (D',) representing the number of categories for each discrete feature
+            in the static data. If None, all features are assumed to be continuous.
+        `static_data_weight` (float): A weight between 0 and 1 that determines the
+            relative importance of the temporal and static similarities in the MSAS
+            score. A value of 0 means that only the temporal score is used, while a
+            value of 1 means that only the static data is used.
+        `removing_padding` (bool): A flag that determines whether to remove padded
+            temporal timesteps from the temporal data before computing the statistics.
+            If True, any sequence that consists entirely of padding values will be
+            removed. Default is True.
+        `padding_value` (float): A value that represents padding in the temporal data.
+            Default is 0.0.
+        `reduction` (Union[Literal["mean", "sum"], None]): A string that determines how
+            to reduce the MSAS score across statistics function and static similarity.
+            If "mean", the mean score is returned. If "sum", the sum score is
+            returned. If None, a tuple of tensors is returned. Default is "mean".
+
+    Returns:
+        Union[Tensor, Tuple[Tensor, ...]]: The MSAS score(s) between the real and
+        synthetic data, and optionally the real and synthetic static data.
+        If reduction is "mean" or "sum", a single tensor is returned. If
+        reduction is None, a tuple of tensors is returned. The tuple contains three
+        tensors: the Kolmogorov-Smirnov statistics for each statistic function in the
+        temporal data, the discrete goodness-of-fit values for each discrete feature in
+        the temporal data, and the static similarity between the real and synthetic
+        data.
+    """
     # Shape tests
 
     assert real_temporal_data.size() == synthetic_temporal_data.size()
@@ -106,9 +202,13 @@ def msas(
             synthetic_sequence = synthetic_temporal_data[datapoint_idx]
 
             if removing_padding:
-                real_sequence = real_sequence[(real_sequence == padding_value).sum(dim=1) != real_sequence.size(-1)]
+                real_sequence = real_sequence[
+                    (real_sequence == padding_value).sum(dim=1)
+                    != real_sequence.size(-1)
+                ]
                 synthetic_sequence = synthetic_sequence[
-                    (synthetic_sequence == padding_value).sum(dim=1) != synthetic_sequence.size(-1)
+                    (synthetic_sequence == padding_value).sum(dim=1)
+                    != synthetic_sequence.size(-1)
                 ]
 
             real_sequence = real_sequence[:, column_idx]
@@ -153,10 +253,13 @@ def msas(
                 synthetic_sequence = synthetic_temporal_data[datapoint_idx]
 
                 if removing_padding:
-
-                    real_sequence = real_sequence[(real_sequence == padding_value).sum(dim=1) != real_sequence.size(-1)]
+                    real_sequence = real_sequence[
+                        (real_sequence == padding_value).sum(dim=1)
+                        != real_sequence.size(-1)
+                    ]
                     synthetic_sequence = synthetic_sequence[
-                        (synthetic_sequence == padding_value).sum(dim=1) != synthetic_sequence.size(-1)
+                        (synthetic_sequence == padding_value).sum(dim=1)
+                        != synthetic_sequence.size(-1)
                     ]
 
                 real_sequence = real_sequence[:, column_idx]
@@ -171,7 +274,8 @@ def msas(
                     map(
                         lambda timestep: discrete_goodness_of_fit_test(
                             counts_real[timestep] / counts_real[timestep].sum(),
-                            counts_synthetic[timestep] / counts_synthetic[timestep].sum(),
+                            counts_synthetic[timestep]
+                            / counts_synthetic[timestep].sum(),
                             make_counts=False,
                         ),
                         range(counts_real.size(0)),
