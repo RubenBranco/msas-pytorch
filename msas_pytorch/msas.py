@@ -53,6 +53,7 @@ def discrete_goodness_of_fit_test(
     if make_counts:
         real = categorical_vector_to_freq_vector(real, num_categories)
         synthetic = categorical_vector_to_freq_vector(synthetic, num_categories)
+
     return 1 - euclidean(real, synthetic)
 
 
@@ -72,7 +73,7 @@ def set_diff_1d(t1, t2, assume_unique=False):
 def msas(
     real_temporal_data: Tensor,
     synthetic_temporal_data: Tensor,
-    statistics_functions: List[Callable[[Tensor], float]],
+    statistics_functions: List[Callable[[Tensor], Union[float, Tensor]]],
     discrete_temporal_features_indices: Optional[LongTensor] = None,
     discrete_temporal_features_num_categories: Optional[LongTensor] = None,
     real_static_data: Optional[Tensor] = None,
@@ -82,7 +83,9 @@ def msas(
     static_data_weight: float = 0.5,
     removing_padding: bool = True,
     padding_value: float = 0.0,
+    ignore_nans: bool = True,
     reduction: Union[Literal["mean", "sum"], None] = "mean",
+    enforce_temporal_shape: bool = True,
 ) -> Union[Tensor, Tuple[Tensor, ...]]:
     """
     Computes the MSAS (Multi-Sequence Aggregate Similarity) between two
@@ -132,10 +135,15 @@ def msas(
             removed. Default is True.
         `padding_value` (float): A value that represents padding in the temporal data.
             Default is 0.0.
+        `ignore_nans` (bool): A flag that determines whether to ignore NaN values during
+            the computation of the temporal statistics. This may happen when, as an example,
+            computing the standard deviation of a sequence with a single value. Default is True.
         `reduction` (Union[Literal["mean", "sum"], None]): A string that determines how
             to reduce the MSAS score across statistics function and static similarity.
             If "mean", the mean score is returned. If "sum", the sum score is
             returned. If None, a tuple of tensors is returned. Default is "mean".
+        `enforce_temporal_shape` (bool): A flag that determines whether to enforce that
+            the real and synthetic temporal data have the same shape. Default is True.
 
     Returns:
         Union[Tensor, Tuple[Tensor, ...]]: The MSAS score(s) between the real and
@@ -148,8 +156,13 @@ def msas(
         data.
     """
     # Shape tests
-
-    assert real_temporal_data.size() == synthetic_temporal_data.size()
+    if enforce_temporal_shape:
+        try:
+            assert real_temporal_data.size() == synthetic_temporal_data.size()
+        except AssertionError:
+            raise ValueError(
+                f"Real temporal shape {real_temporal_data.size()} and synthetic temporal shape {synthetic_temporal_data.size()} do not match."
+            )
     if real_static_data is not None and synthetic_static_data is not None:
         assert real_static_data.size() == synthetic_static_data.size()
         assert (
@@ -215,12 +228,22 @@ def msas(
             synthetic_sequence = synthetic_sequence[:, column_idx]
 
             for statistics_idx, statistic_f in enumerate(statistics_functions):
-                real_temporal_statistics[statistics_idx, datapoint_idx] = statistic_f(
-                    real_sequence
+                real_stat = statistic_f(real_sequence)
+                synthetic_stat = statistic_f(synthetic_sequence)
+
+                if torch.isnan(real_stat) or torch.isnan(synthetic_stat):
+                    if ignore_nans:
+                        continue
+                    else:
+                        error_source = "real" if torch.isnan(real_stat) else "synthetic"
+                        raise ValueError(
+                            f"Statistic function {statistic_f} returned NaN value for datapoint index {datapoint_idx} in the {error_source} dataset."
+                        )
+
+                real_temporal_statistics[statistics_idx, datapoint_idx] = real_stat
+                synthetic_temporal_statistics[statistics_idx, datapoint_idx] = (
+                    synthetic_stat
                 )
-                synthetic_temporal_statistics[
-                    statistics_idx, datapoint_idx
-                ] = statistic_f(synthetic_sequence)
 
         for statistics_idx in range(len(statistics_functions)):
             temporal_ks_values[statistics_idx, i] = (
@@ -242,7 +265,7 @@ def msas(
             )
             counts_synthetic = torch.zeros(
                 (
-                    real_temporal_data.size(1),
+                    synthetic_temporal_data.size(1),
                     discrete_temporal_features_num_categories[i],
                 ),
                 dtype=torch.long,
@@ -267,6 +290,8 @@ def msas(
 
                 for timestep in range(real_sequence.size(0)):
                     counts_real[timestep, real_sequence[timestep].long()] += 1
+
+                for timestep in range(synthetic_sequence.size(0)):
                     counts_synthetic[timestep, synthetic_sequence[timestep].long()] += 1
 
             temporal_discrete_gof_values[i] = torch.FloatTensor(
@@ -278,7 +303,7 @@ def msas(
                             / counts_synthetic[timestep].sum(),
                             make_counts=False,
                         ),
-                        range(counts_real.size(0)),
+                        range(min(counts_real.size(0), counts_synthetic.size(0))),
                     )
                 )
             ).mean()
