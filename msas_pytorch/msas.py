@@ -48,13 +48,15 @@ def discrete_goodness_of_fit_test(
     Returns:
         float: The goodness-of-fit between the two distributions,
             computed as 1 minus the Euclidean distance between the two frequency
-            vectors.
+            vectors normalized by sqrt(2) -- maximum theoretical distance.
     """
     if make_counts:
         real = categorical_vector_to_freq_vector(real, num_categories)
         synthetic = categorical_vector_to_freq_vector(synthetic, num_categories)
 
-    return 1 - euclidean(real, synthetic)
+    # maximum euclidean between two frequency vectors is sqrt(2)
+    # we want this to be bounded between 0 and 1
+    return 1 - euclidean(real, synthetic) / (2 ** 0.5)
 
 
 def set_diff_1d(t1, t2, assume_unique=False):
