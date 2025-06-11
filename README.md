@@ -10,7 +10,7 @@ It implements the [Multi-Sequence Aggregate Similarity](https://arxiv.org/abs/22
 The discrete goodness of fit test ($d: \mathbb{R}^{N \times C} \to [0,1]$), where $N$ is the sample size and $C$ is the possible values of the categorical/discrete feature, is defined as the following:
 
 $$
-d(x_{f_i}^{(1)}, x_{f_i}^{(2)}) = 1 - ||freq(x_{f_i}^{(1)}) - freq(x_{f_i}^{(2)})||_2
+d(x_{f_i}^{(1)}, x_{f_i}^{(2)}) = 1 - \frac{||freq(x_{f_i}^{(1)}) - freq(x_{f_i}^{(2)})||_2}{\sqrt{2}}
 $$
 
 where $x_{f_i}^{(1)}$ is sample one for feature $i$, which could be the real data, and x_{f_i}^{(2)} for a second sample, which could be synthetic data. $freq$ is a function that calculates the frequency of the possible values of the categorical/discrete feature, observed in the sample.
